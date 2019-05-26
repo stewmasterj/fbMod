@@ -13,8 +13,6 @@ type FrameBufferType
 end type
 type(FrameBufferType) :: fb
 
-
-
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 contains
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -90,9 +88,11 @@ open(11,file=trim(FL))
 select case(mode)
   case(1); write(11) fb%pxbuff
   case(2);
-    write(11,'(''P6'', 2(1x,i4),'' 255 '',$)') fb%line, fb%height
+    !write(11,'(''P6'', 2(1x,i4),'' 255 '',$)') fb%line, fb%height
+    write(11,'(''P6'', 2(1x,i4),'' 255 '')',advance="no") fb%line, fb%height
     itmp = fb%line*fb%height*3
-    write(frmtstr,'(''('',i8.8,''A,$)'')') itmp
+    !write(frmtstr,'(''('',i8.8,''A,$)'')') itmp
+    write(frmtstr,'(''('',i8.8,''A)'')') itmp
     do i = 1, fb%line*fb%height
       k = i*4-3
       y = int(real(i-1)/real(fb%line)) +1
@@ -105,7 +105,7 @@ endif
       rgb(2,x,y) = fb%pxbuff(k+1:k+1)
       rgb(1,x,y) = fb%pxbuff(k+2:k+2)
     enddo
-    write(11,fmt=frmtstr) (((rgb(k,i,j),k=1,3),i=1,fb%line),j=1,fb%height)
+    write(11,fmt=frmtstr,advance="no") (((rgb(k,i,j),k=1,3),i=1,fb%line),j=1,fb%height)
   case(3); 
     do i = 1, fb%line*fb%height
       k = i*4-3
@@ -239,57 +239,66 @@ implicit none
 integer(4), dimension(2,3) :: ps
 integer(4), intent(in) :: x1, x2, x3, y1, y2, y3
 character(4), intent(in) :: px1, px2, px3
+character(4) :: pxl1, pxl2, pxl3
 integer, dimension(2,2), optional, intent(in) :: sb
 real(4), optional, intent(in) :: z1,z2,z3
-integer(4) :: xs, xe, y, r, x
+integer(4) :: xs, xe, y, r, x, idenom
 character(4) :: px
 real(4), dimension(3) :: w
-real(4) :: dy23, dy31, dx32, dx13, dy13, denom, z, zp(3)
+integer(4)  :: dy23, dy31, dx32, dx13, dy13
+real(4) :: denom, z, zp(3)
 
 ! sort point from top to bottom
 if (present(z1)) then !{{{
   if (y1.le.y2 .and.y1.le.y3) then
-   ps(:,1) = (/ x1, y1 /); zp(1) = z1
-   if (y2 < y3) then; ps(:,2) = (/x2,y2/); ps(:,3) = (/x3,y3/); zp(2:3) = (/z2,z3/)
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x2,y2/); zp(2:3) = (/z3,z2/)
+   ps(:,1) = (/ x1, y1 /); zp(1) = z1; pxl1 = px1
+   if (y2<y3) then; ps(:,2)=(/x2,y2/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z2,z3/); pxl2=px2; pxl3=px3
+   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z3,z2/); pxl2=px3; pxl3=px2
    endif
   elseif (y2.le.y1 .and.y2.le.y3) then
-   ps(:,1) = (/ x2, y2 /); zp(1) = z2
-   if (y1 < y3) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x3,y3/); zp(2:3) = (/z1,z3/)
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x1,y1/); zp(2:3) = (/z3,z1/)
+   ps(:,1) = (/ x2, y2 /); zp(1) = z2; pxl1 = px2
+   if (y1<y3) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z1,z3/); pxl2=px1;pxl3=px3
+   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z3,z1/); pxl2=px3;pxl3=px1
    endif
   else
-   ps(:,1) = (/ x3, y3 /); zp(1) = z3
-   if (y1 < y2) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x2,y2/); zp(2:3) = (/z1,z2/)
-   else;              ps(:,2) = (/x2,y2/); ps(:,3) = (/x1,y1/); zp(2:3) = (/z2,z1/)
+   ps(:,1) = (/ x3, y3 /); zp(1) = z3; pxl1 = px3
+   if (y1<y2) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z1,z2/); pxl2=px1;pxl3=px2
+   else;            ps(:,2)=(/x2,y2/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z2,z1/); pxl2=px2;pxl3=px1
    endif
   endif
 else
   if (y1.le.y2 .and.y1.le.y3) then
-   ps(:,1) = (/ x1, y1 /)
-   if (y2 < y3) then; ps(:,2) = (/x2,y2/); ps(:,3) = (/x3,y3/)
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x2,y2/)
+   ps(:,1) = (/ x1, y1 /); pxl1 = px1
+   if (y2 < y3) then; ps(:,2) = (/x2,y2/); ps(:,3) = (/x3,y3/); pxl2=px2; pxl3=px3
+   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x2,y2/); pxl2=px3; pxl3=px2
    endif
   elseif (y2.le.y1 .and.y2.le.y3) then
-   ps(:,1) = (/ x2, y2 /)
-   if (y1 < y3) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x3,y3/)
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x1,y1/)
+   ps(:,1) = (/ x2, y2 /); pxl1 = px2
+   if (y1 < y3) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x3,y3/); pxl2=px1;pxl3=px3
+   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x1,y1/); pxl2=px3;pxl3=px1
    endif
   else
-   ps(:,1) = (/ x3, y3 /)
-   if (y1 < y2) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x2,y2/)
-   else;              ps(:,2) = (/x2,y2/); ps(:,3) = (/x1,y1/)
+   ps(:,1) = (/ x3, y3 /); pxl1 = px3 
+   if (y1 < y2) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x2,y2/); pxl2=px1;pxl3=px2
+   else;              ps(:,2) = (/x2,y2/); ps(:,3) = (/x1,y1/); pxl2=px2;pxl3=px1
    endif
   endif
 endif !}}}
 
 ! save these convinient vlues for weight calculation
-dy23 = y2-y3
-dy31 = y3-y1
-dy13 = y1-y3
-dx32 = x3-x2
-dx13 = x1-x3
-denom = dy23*dx13+dx32*dy13
+dy23 = ps(2,2)-ps(2,3) !y2-y3
+dy31 = ps(2,3)-ps(2,1) !y3-y1
+dy13 = ps(2,1)-ps(2,3) !y1-y3
+dx32 = ps(1,3)-ps(1,2) !x3-x2
+dx13 = ps(1,1)-ps(1,3) !x1-x3
+idenom = dy23*dx13+dx32*dy13
+if (idenom.eq.0) then
+ !write(0,*) "ERROR triangle:", ps(:,1), ":", ps(:,2),":",ps(:,3)
+ !write(0,*) "denom=0",dy23,dx13,dx32,dy13
+ Return
+endif
+
+denom=real(idenom)
 
 ! top triangle
 if (ps(2,2) > ps(2,1)) then !only if not horizontal top
@@ -306,12 +315,15 @@ do y=ps(2,1), ps(2,2) !only raster down to medium y point
     r = getrec(x,y)
     if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, xs, xe
     ! calculate each vertex's position weight on (x,y)
-    w(1) = (dy23*(x-x3) + dx32*(y-y3))/denom
-    w(2) = (dy31*(x-x3) + dx13*(y-y3))/denom
+    !w(1) = (dy23*(x-x3) + dx32*(y-y3))/denom
+    !w(2) = (dy31*(x-x3) + dx13*(y-y3))/denom
+    w(1) = (dy23*(x-ps(1,3)) + dx32*(y-ps(2,3)))/denom
+    w(2) = (dy31*(x-ps(1,3)) + dx13*(y-ps(2,3)))/denom
     w(3) = 1.0 -w(1) -w(2)
     if (minval(w).lt.0.0) cycle !outside of triangle
     if (fb%Lzbuff) then
-      z = z1*w(1) +z2*w(2) +z3*w(3)
+      !z = z1*w(1) +z2*w(2) +z3*w(3)
+      z = zp(1)*w(1) +zp(2)*w(2) +zp(3)*w(3)
       if (fb%zbuff(x,y).lt.0.0) then
         fb%zbuff(x,y) = z !save this to the Z-buffer and render it
       else
@@ -323,9 +335,12 @@ do y=ps(2,1), ps(2,2) !only raster down to medium y point
       endif
     endif
     ! use the weights to interpolate each RGB value
-    px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3)))
-    px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3)))
-    px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) +ichar(px3(3:3))*w(3)))
+    !px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3)))
+    !px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3)))
+    !px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) +ichar(px3(3:3))*w(3)))
+    px(1:1) = char(nint( ichar(pxl1(1:1))*w(1) +ichar(pxl2(1:1))*w(2) +ichar(pxl3(1:1))*w(3)))
+    px(2:2) = char(nint( ichar(pxl1(2:2))*w(1) +ichar(pxl2(2:2))*w(2) +ichar(pxl3(2:2))*w(3)))
+    px(3:3) = char(nint( ichar(pxl1(3:3))*w(1) +ichar(pxl2(3:3))*w(2) +ichar(pxl3(3:3))*w(3)))
     if (fb%Lbuff) then
       fb%pxbuff(r:r+3) = px
     else
@@ -349,12 +364,15 @@ do y=ps(2,2), ps(2,3) !only raster down from medium y point to bottom
     r = getrec(x,y)
     if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, xs, xe
     ! calculate each vertex's position weight on (x,y)
-    w(1) = (dy23*(x-x3) + dx32*(y-y3))/denom
-    w(2) = (dy31*(x-x3) + dx13*(y-y3))/denom
+    !w(1) = (dy23*(x-x3) + dx32*(y-y3))/denom
+    !w(2) = (dy31*(x-x3) + dx13*(y-y3))/denom
+    w(1) = (dy23*(x-ps(1,3)) + dx32*(y-ps(2,3)))/denom
+    w(2) = (dy31*(x-ps(1,3)) + dx13*(y-ps(2,3)))/denom
     w(3) = 1.0 -w(1) -w(2)
     if (minval(w).lt.0.0) cycle !outside of triangle
     if (fb%Lzbuff) then
-      z = z1*w(1) +z2*w(2) +z3*w(3)
+      !z = z1*w(1) +z2*w(2) +z3*w(3)
+      z = zp(1)*w(1) +zp(2)*w(2) +zp(3)*w(3)
       if (fb%zbuff(x,y).lt.0.0) then
         fb%zbuff(x,y) = z !save this to the Z-buffer and render it
       else
@@ -366,9 +384,12 @@ do y=ps(2,2), ps(2,3) !only raster down from medium y point to bottom
       endif
     endif
     ! use the weights to interpolate each RGB value
-    px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3) ))
-    px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3) ))
-    px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) +ichar(px3(3:3))*w(3) ))
+    !px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3) ))
+    !px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3) ))
+    !px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) +ichar(px3(3:3))*w(3) ))
+    px(1:1) = char(nint( ichar(pxl1(1:1))*w(1) +ichar(pxl2(1:1))*w(2) +ichar(pxl3(1:1))*w(3) ))
+    px(2:2) = char(nint( ichar(pxl1(2:2))*w(1) +ichar(pxl2(2:2))*w(2) +ichar(pxl3(2:2))*w(3) ))
+    px(3:3) = char(nint( ichar(pxl1(3:3))*w(1) +ichar(pxl2(3:3))*w(2) +ichar(pxl3(3:3))*w(3) ))
     if (fb%Lbuff) then
       fb%pxbuff(r:r+3) = px
     else
@@ -451,9 +472,9 @@ if ((y2-y1).ne.0) LY=.true.
 if (.not.LX .and. .not.LY) then
   if (fb%Lbuff) then
     k = getrec(x1,y1)
-    fb%pxbuff(k:k+3) = px
+    fb%pxbuff(k:k+3) = px1
   else
-    write(fb%FID,REC=getrec(x1,y1)) px
+    write(fb%FID,REC=getrec(x1,y1)) px1
   endif
   RETURN
 endif
@@ -588,7 +609,7 @@ end subroutine fb_circle !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 !  PLOTS & FONTS
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
-! fb_plot( XY, pr, sr )
+! fb_plot( XY, pr, sr, px )
 !   plot data XY within the plot range pr into a pixel domain sr
 subroutine fb_plot( XY, pr, sr, px ) !{{{
 implicit none
@@ -656,6 +677,105 @@ do j = 2, n+1
 enddo
 
 end subroutine fb_mplot !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! fb_heatplot( XYZ, pr, sr, cr )
+!   plot data XYZ within the plot range pr into a pixel domain sr
+subroutine fb_heatplot( XYZ, pr, sr, cr ) !{{{
+implicit none
+real(4), dimension(:,:), intent(in) :: XYZ, pr
+integer, dimension(2,2), intent(in) :: sr
+character(4), intent(in) :: cr !color range type
+character(4) :: px
+integer :: i, x, y, k
+real(4) :: dx, dy, dz
+
+! if there's too much data to fit, it must be binned
+dx = (pr(1,2)-pr(1,1))/float(sr(1,2)-sr(1,1)-1)
+dy = (pr(2,2)-pr(2,1))/float(sr(2,2)-sr(2,1)-1)
+dz = (pr(3,2)-pr(3,1))/255.0
+
+do i=1, size(XYZ,2) 
+   x = int((XYZ(1,i)-pr(1,1))/dx) + sr(1,1) + 1
+   y = -int((XYZ(2,i)+pr(2,2))/dy) + sr(2,2) - 1
+   select case(cr)
+   case("bw  ") 
+      k = int((XYZ(3,i)-pr(3,1))/dz)
+      px = char(k)//char(k)//char(k)//char(0)
+   case("rgb ") 
+      k = int((XYZ(3,i)-pr(3,1))*2.0/dz)
+      if (k.le.255) then
+        px = char(255-k)//char(k)//char(0)//char(0)
+      else 
+        k = k-255
+        px = char(0)//char(255-k)//char(k)//char(0)
+      endif
+   case default
+      k = int((XYZ(3,i)-pr(3,1))/dz)
+      px = char(k)//char(k)//char(k)//char(0)
+   end select
+   ! check if out or on terminal domain bounds
+   if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).or. &
+      & (y.ge.sr(2,2).or.y.le.sr(2,1)) ) cycle
+   if (fb%Lbuff) then ! writing to buffer
+     k = getrec(x,y)
+     fb%pxbuff(k:k+3) = px
+   else    !writing directly to frame buffer device.
+     write(fb%FID,REC=getrec(x,y)) px
+   endif
+enddo
+
+end subroutine fb_heatplot !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! fb_matrixplot( XYZ, ar, sr, cr )
+!   plot data XYZ within the plot range pr into a pixel domain sr
+subroutine fb_matrixplot( XYZ, ar, sr, cr ) !{{{
+implicit none
+real(4), dimension(:,:), intent(in) :: XYZ
+integer, dimension(2,2), intent(in) :: sr
+real(4), dimension(2), intent(in) :: ar
+character(4), intent(in) :: cr !color range type
+character(4) :: px
+integer :: i, j, x, y, k
+real(4) :: dx, dy, dz
+
+! if there's too much data to fit, it must be binned
+dx = float(size(XYZ,1))/float(sr(1,2)-sr(1,1)-1)
+dy = float(size(XYZ,2))/float(sr(2,2)-sr(2,1)-1)
+dz = (ar(2)-ar(1))/255.0
+
+do i=1, size(XYZ,1) 
+ do j=1, size(XYZ,2)
+   x = int(real(i)/dx) + sr(1,1) + 1
+   y = -int(real(j)/dy) + sr(2,2) - 1
+   select case(cr)
+   case("bw  ") 
+      k = int((XYZ(i,j)-ar(1))/dz)
+      px = char(k)//char(k)//char(k)//char(0)
+   case("rgb ") 
+      k = int((XYZ(i,j)-ar(1))*2.0/dz)
+      if (k.le.255) then
+        px = char(255-k)//char(k)//char(0)//char(0)
+      else 
+        k = k-255
+        px = char(0)//char(255-k)//char(k)//char(0)
+      endif
+   case default
+      k = int((XYZ(i,j)-ar(1))/dz)
+      px = char(k)//char(k)//char(k)//char(0)
+   end select
+   ! check if out or on terminal domain bounds
+   if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).or. &
+      & (y.ge.sr(2,2).or.y.le.sr(2,1)) ) cycle
+   if (fb%Lbuff) then ! writing to buffer
+     k = getrec(x,y)
+     fb%pxbuff(k:k+3) = px
+   else    !writing directly to frame buffer device.
+     write(fb%FID,REC=getrec(x,y)) px
+   endif
+ enddo
+enddo
+
+end subroutine fb_matrixplot !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 ! fb_printNumber(n, x, y, s, fpx, bpx)
 !   print a monochrome digit, n, at location, x, y, with size, s, and color, px.
@@ -977,11 +1097,47 @@ if (s.eq.1) then
  do l = 1, len(str)
  n = str(l:l)
 select case (n) !{{{
+case(char(16)) ! theta (narrow)
+L1(:,1) = (/ F, F, T, T, F /)
+L1(:,2) = (/ F, T, F, F, T /)
+L1(:,3) = (/ F, T, T, T, T /)
+L1(:,4) = (/ F, T, F, F, T /)
+L1(:,5) = (/ F, F, T, T, F /)
+case(char(17)) ! phi  (stupidly triangular)
+L1(:,1) = (/ F, F, T, F, F /)
+L1(:,2) = (/ F, T, T, T, F /)
+L1(:,3) = (/ T, F, T, F, T /)
+L1(:,4) = (/ F, T, T, T, F /)
+L1(:,5) = (/ F, F, T, F, F /)
+case(char(18)) ! pi (lower case)
+L1(:,1) = (/ F, F, F, F, F /)
+L1(:,2) = (/ T, T, T, T, T /)
+L1(:,3) = (/ F, T, F, T, F /)
+L1(:,4) = (/ F, T, F, T, F /)
+L1(:,5) = (/ F, T, F, T, T /)
 case(' ')
 L1(:,1) = (/ F, F, F, F, F /)
 L1(:,2) = (/ F, F, F, F, F /)
 L1(:,3) = (/ F, F, F, F, F /)
 L1(:,4) = (/ F, F, F, F, F /)
+L1(:,5) = (/ F, F, F, F, F /)
+case('(')
+L1(:,1) = (/ F, F, F, T, F /)
+L1(:,2) = (/ F, F, T, F, F /)
+L1(:,3) = (/ F, F, T, F, F /)
+L1(:,4) = (/ F, F, T, F, F /)
+L1(:,5) = (/ F, F, F, T, F /)
+case(')')
+L1(:,1) = (/ F, T, F, F, F /)
+L1(:,2) = (/ F, F, T, F, F /)
+L1(:,3) = (/ F, F, T, F, F /)
+L1(:,4) = (/ F, F, T, F, F /)
+L1(:,5) = (/ F, T, F, F, F /)
+case('.')
+L1(:,1) = (/ F, F, F, F, F /)
+L1(:,2) = (/ F, F, F, F, F /)
+L1(:,3) = (/ F, F, F, F, F /)
+L1(:,4) = (/ F, F, T, F, F /)
 L1(:,5) = (/ F, F, F, F, F /)
 case(':')
 L1(:,1) = (/ F, F, F, F, F /)
@@ -989,11 +1145,23 @@ L1(:,2) = (/ F, F, T, F, F /)
 L1(:,3) = (/ F, F, F, F, F /)
 L1(:,4) = (/ F, F, T, F, F /)
 L1(:,5) = (/ F, F, F, F, F /)
+case(',')
+L1(:,1) = (/ F, F, F, F, F /)
+L1(:,2) = (/ F, F, F, F, F /)
+L1(:,3) = (/ F, F, F, F, F /)
+L1(:,4) = (/ F, F, T, F, F /)
+L1(:,5) = (/ F, T, F, F, F /)
 case('=')
 L1(:,1) = (/ F, F, F, F, F /)
 L1(:,2) = (/ F, T, T, T, F /)
 L1(:,3) = (/ F, F, F, F, F /)
 L1(:,4) = (/ F, T, T, T, F /)
+L1(:,5) = (/ F, F, F, F, F /)
+case('-')
+L1(:,1) = (/ F, F, F, F, F /)
+L1(:,2) = (/ F, F, F, F, F /)
+L1(:,3) = (/ F, T, T, T, F /)
+L1(:,4) = (/ F, F, F, F, F /)
 L1(:,5) = (/ F, F, F, F, F /)
 case('1')
 L1(:,1) = (/ F, F, T, F, F /)
