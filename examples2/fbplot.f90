@@ -1,7 +1,7 @@
 ! vim:fdm=marker
 ! Author: Ross J. Stewart
 ! DATE: September 2018
-! compile: gfortran ../fbMod.f90 fbplot.f90 -o fbplot
+! compile: gfortran ../fbMod2.f90 fbplot.f90 -o fbplot
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 program fbplot
 use fbMod
@@ -66,30 +66,32 @@ enddo
  
 
 ! open and set framebuffer
-call fb_init(40,"/dev/fb0","direct")
+!call fb_init(40,"/dev/fb0","direct")
+call fb%fbinit(40,"/dev/fb0")
 
 ! this can be found with fbset
 !fbwidth=1440
 !fbheight=900
 !fbline=1472 !for some reason line length is not the same as width, WTF?
 
-
 ! X and Y data ranges
 pr(1,:) = (/ minval(XY(1,:)), maxval(XY(1,:)) /)
 pr(2,:) = (/ minval(XY(2:,:)), maxval(XY(2:,:)) /)
 ! X and Y plot location, screen range [sr] 
-sr(1,:) = (/ 100, fb%width-100 /)
-sr(2,:) = (/ 100, fb%height-100 /)
+sr(1,:) = (/ 100, fb%w-100 /)
+sr(2,:) = (/ 100, fb%h-100 /)
 !write(0,*) sr(1,:), sr(2,:)
 write(0,*) "xr:",pr(1,:), "yr:",pr(2,:)
 
+call fb%loadScreen  !load the current screen into the frame buffer
+
 ! horizontal lines
 px = char(200)//char(200)//char(200)//char(0) !light gray
-call fb_line(sr(1,1)-1,sr(2,1)-1, sr(1,2)+1,sr(2,1)-1, px)
-call fb_line(sr(1,1)-1,sr(2,2)+1, sr(1,2)+1,sr(2,2)+1, px)
+call fb%line(sr(1,1)-1,sr(2,1)-1, sr(1,2)+1,sr(2,1)-1, px)
+call fb%line(sr(1,1)-1,sr(2,2)+1, sr(1,2)+1,sr(2,2)+1, px)
 ! vertical lines
-call fb_line(sr(1,1)-1,sr(2,1), sr(1,1)-1,sr(2,2), px)
-call fb_line(sr(1,2)+1,sr(2,1), sr(1,2)+1,sr(2,2), px)
+call fb%line(sr(1,1)-1,sr(2,1), sr(1,1)-1,sr(2,2), px)
+call fb%line(sr(1,2)+1,sr(2,1), sr(1,2)+1,sr(2,2), px)
 
 do r = 1, nY
   err = 0
@@ -101,13 +103,13 @@ do r = 1, nY
     enddo; enddo
   enddo outer
 enddo
-call fb_mplot( XY, pr, sr, pxY )
+call fb%mplot( XY, pr, sr, pxY )
 
 !! print some numbers
-!call fb_printNumber( 1, 1400, 300, 1, px )
-!call fb_printNumber( 8, 1405, 300, 1, px )
-!call fb_printNumber( 3, 1410, 300, 1, px )
-!call fb_printNumber( 2, 1415, 300, 1, px )
+!call fb%putNumber( 1, 1400, 300, 1, px )
+!call fb%putNumber( 8, 1405, 300, 1, px )
+!call fb%putNumber( 3, 1410, 300, 1, px )
+!call fb%putNumber( 2, 1415, 300, 1, px )
 !! larger
 !call fb_printNumber( 4, 1400, 306, 2, px )
 !call fb_printNumber( 7, 1405, 306, 2, px )
@@ -121,8 +123,11 @@ call fb_mplot( XY, pr, sr, pxY )
 !call fb_printNumber( 6, 1412, 315, 3, px, bpx )
 !call fb_printNumber( 9, 1418, 315, 3, px, bpx )
 
+call fb%display
 
-call fb_close
+call fb%save("fbplot.ppm",2)
+
+call fb%close
 end program fbplot
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 subroutine help

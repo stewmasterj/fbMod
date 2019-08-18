@@ -1,0 +1,12 @@
+fbMod1.f90	2019
+	just one framebuffer object.
+	All geometry and drawing routines write directly to the framebuffer
+	 object.
+
+fbMod2.f90	August 2019
+	Has a framebuffer object, but also a generic pixel buffer object type.
+	All drawing routines are methods of the pixel buffer (pixbuff) object.
+	This is useful, to automatically draw things to a temporary buffer
+	 that is not the screens framebuffer. I.e. useful for editing images.
+
+

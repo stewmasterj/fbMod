@@ -1,7 +1,7 @@
 ! vim:fdm=marker
 ! Author: Ross J. Stewart
 ! DATE: August 2018
-! compile: gfortran ../fbMod.f90 colors.f90 -o colors
+! compile: gfortran ../fbMod2.f90 colors.f90 -o colors
 ! run: ./colors
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 program fbtest
@@ -18,7 +18,7 @@ integer :: i, x, y, h, rh, s, v, r, g, b
 
 ! open and set framebuffer
 !call fb_init(10,"/dev/fb0","direct")
-call fb_init(10,"/dev/fb0","buffer")
+call fb%fbinit(10,"/dev/fb0")
 
 ! this can be found with fbset
 !fbwidth=1440
@@ -51,60 +51,62 @@ x = 700; y = 450
 r = 128
 rh = 64
 h = 111 !r*sin(60degrees)
-call fb_printString("RGB Hexagon", x-30, y-r, 1, orange, black)
+call fb%putString("RGB Hexagon", x-30, y-r, 1, orange, black)
 
-call fb_filltriangle3c( x-r, y,   x-rh,y+h, x,y, red, magenta, grey )
-call fb_filltriangle3c( x-rh,y+h, x+rh,y+h, x,y, magenta, blue, grey )
-call fb_filltriangle3c( x+r, y,   x+rh,y+h, x,y, cyan, blue, grey )
+call fb%fillTriangle3c( x-r, y,   x-rh,y+h, x,y, red, magenta, grey )
+call fb%fillTriangle3c( x-rh,y+h, x+rh,y+h, x,y, magenta, blue, grey )
+call fb%fillTriangle3c( x+r, y,   x+rh,y+h, x,y, cyan, blue, grey )
 
-call fb_filltriangle3c( x-r, y,   x-rh,y-h, x,y, red, yellow, grey )
-call fb_filltriangle3c( x-rh,y-h, x+rh,y-h, x,y, yellow, green, grey )
-call fb_filltriangle3c( x+r, y,   x+rh,y-h, x,y, cyan, green, grey )
+call fb%fillTriangle3c( x-r, y,   x-rh,y-h, x,y, red, yellow, grey )
+call fb%fillTriangle3c( x-rh,y-h, x+rh,y-h, x,y, yellow, green, grey )
+call fb%fillTriangle3c( x+r, y,   x+rh,y-h, x,y, cyan, green, grey )
 
 ! test HSV
 x = 500; y = 300
-call fb_printString("H S V", x-2, y-10, 1, white, black)
-  call fb_pixel(x+8,y+126, white)
- call fb_line(x+7,y+127, x+8,y+127, white)
-call fb_line(x+6,y+128, x+8,y+128, white)
- call fb_line(x+7,y+129, x+8,y+129, white)
-  call fb_pixel(x+8,y+130, white)
+call fb%putString("H S V", x-2, y-10, 1, white, black)
+  call fb%putPixel(x+8,y+126, white)
+ call fb%line(x+7,y+127, x+8,y+127, white)
+call fb%line(x+6,y+128, x+8,y+128, white)
+ call fb%line(x+7,y+129, x+8,y+129, white)
+  call fb%putPixel(x+8,y+130, white)
 
-  call fb_pixel(x+18,y-2, white)
- call fb_line(x+17,y-1, x+18,y-1, white)
-call fb_line(x+16,y, x+18,y, white)
- call fb_line(x+17,y+1, x+18,y+1, white)
-  call fb_pixel(x+18,y+2, white)
+  call fb%putPixel(x+18,y-2, white)
+ call fb%line(x+17,y-1, x+18,y-1, white)
+call fb%line(x+16,y, x+18,y, white)
+ call fb%line(x+17,y+1, x+18,y+1, white)
+  call fb%putPixel(x+18,y+2, white)
 
-  call fb_pixel(x+28,y+126, white)
- call fb_line(x+27,y+127, x+28,y+127, white)
-call fb_line(x+26,y+128, x+28,y+128, white)
- call fb_line(x+27,y+129, x+28,y+129, white)
-  call fb_pixel(x+28,y+130, white)
+  call fb%putPixel(x+28,y+126, white)
+ call fb%line(x+27,y+127, x+28,y+127, white)
+call fb%line(x+26,y+128, x+28,y+128, white)
+ call fb%line(x+27,y+129, x+28,y+129, white)
+  call fb%putPixel(x+28,y+130, white)
 
 call HSV2RGB( 128,255,128,  r,g,b )
  px = char(b)//char(g)//char(r)//char(0)
-call fb_fillrec( x,y+260, x+25,y+270, px )
+call fb%fillRec( x,y+260, x+25,y+270, px )
 do i = 0, 255
  ! Hue
  h = 255-i; s=255; v=255
  call HSV2RGB( h,s,v,  r,g,b )
  px = char(b)//char(g)//char(r)//char(0)
- call fb_line( x,y+i, x+5,y+i, px)
+ call fb%line( x,y+i, x+5,y+i, px)
  ! saturation
  h = 128; s=255-i; v=255
  call HSV2RGB( h,s,v,  r,g,b )
  px = char(b)//char(g)//char(r)//char(0)
- call fb_line( x+10,y+i, x+15,y+i, px)
+ call fb%line( x+10,y+i, x+15,y+i, px)
  ! value (brightness level)
  h = 128; s=255; v=255-i
  call HSV2RGB( h,s,v,  r,g,b )
  px = char(b)//char(g)//char(r)//char(0)
- call fb_line( x+20,y+i, x+25,y+i, px)
+ call fb%line( x+20,y+i, x+25,y+i, px)
 enddo
 
-call fb_write
+call fb%display
 
-call fb_close
+call fb%save("colors.ppm",2)
+
+call fb%close
 end program fbtest
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
