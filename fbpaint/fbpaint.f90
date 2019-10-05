@@ -140,7 +140,7 @@ do      !main do loop for capturing keys !{{{
   call getfullkey(ch2)
   if (ch2(1).eq.'Y') then; exit ! exit loop quits program
   else
-   call tput( "^[ ^d EXIT   ^s SAVE   ^f outFile", 1, 1 )
+   call tput( "^[ ^d EXIT   ^s SAVE   ^f outFile   ^p screenshot", 1, 1 )
   endif
  case (char(13)) !ENTER
  case (char(127)) !BACKSPACE
@@ -152,7 +152,7 @@ do      !main do loop for capturing keys !{{{
   call tput( "Specify Output File Name:", 1, 1 )
   call fancygetrawline( line, char(13), .true. )
   outFile = line
-  call tput( "^[ ^d EXIT   ^s SAVE   ^f outFile", 1, 1 )
+  call tput( "^[ ^d EXIT   ^s SAVE   ^f outFile   ^p screenshot", 1, 1 )
  case (char(16)) !^p full screen shot
   call fb%save("fbpaintShot.ppm",2)
  case (char(19)) !^s SAVE to Output File Name

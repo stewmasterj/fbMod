@@ -82,8 +82,7 @@ if (present(ht)) fbo%h = ht
 if (present(ln)) fbo%lline = ln !overwrite the initialization
 
 fbo%Lzbuff = .false. !use Z-buffer?
-if (present(zbu)) fbo%Lzbuff = zbu
-
+!if (present(zbu)) fbo%Lzbuff = zbu
 ! mode options:
 !   direct    each function write is directly to frame buffer device
 !   buffer    each function write is to the buffer: "fb%pxbuff"
@@ -94,7 +93,9 @@ if (present(zbu)) fbo%Lzbuff = zbu
 !! each record in "file" is a pixel
 !   open(fb%FID,file=fb%devicePath,ACCESS='DIRECT',RECL=4,FORM='UNFORMATTED')
 !elseif (trim(mode).eq."buffer") then
-   call fbo%init( fbo%w, fbo%h, fbo%lline, fbo%Lzbuff )
+if (present(zbu)) then;   call fbo%init( fbo%w, fbo%h, fbo%lline, zbu )
+else;                     call fbo%init( fbo%w, fbo%h, fbo%lline )
+endif
 
 ! open as stream to be written to in one go. fastest rendering option
    open(fbo%FID,file=fbo%devicePath,ACCESS='STREAM',FORM='UNFORMATTED')
@@ -237,7 +238,7 @@ end subroutine fb_close !}}}
 subroutine pb_initPixBuff( pb, w, h, l, zb ) !{{{
 class(PixBuffType) :: pb
 integer :: w, h, l
-logical, optional :: zb
+logical, optional, intent(in) :: zb
 pb%w = w
 pb%h = h
 pb%lline = l !for compatibility with framebuffer object, should be 'w'
@@ -249,6 +250,7 @@ pb%Lzbuff = .false. !use Z-buffer?
 if (present(zb)) pb%Lzbuff = zb !use Z-buffer?
 if (allocated( pb%zbuff )) deallocate( pb%zbuff )
 if (pb%Lzbuff) allocate( pb%zbuff(pb%w, pb%h) )
+!if (.not.pb%Lzbuff) write(0,*) "pb_init:Zbuffer not activated"
 call pb%clear
 end subroutine pb_initPixBuff !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -704,12 +706,19 @@ if ((y2-y1).ne.0) LY=.true.
 ! check for same starting and end point
 if (.not.LX .and. .not.LY) then
   !if (fb%Lbuff) then
+    if (pb%Lzbuff) then
+      if (pb%zbuff(x,y).gt.0.0.and.min(z1,z2).gt.pb%zbuff(x,y)) then !then it's behind what is already rendered
+        Return
+      else
+        pb%zbuff(x,y) = min(z1,z2) !save this to the Z-buffer and render it, since it's the closest
+      endif
+    endif
     k = pb%getrec(x1,y1)
     pb%pb(k:k+3) = px1
   !else
   !  write(fb%FID,REC=getrec(x1,y1)) px1
   !endif
-  !RETURN
+  RETURN
 endif
 
 if (LX .and. abs(real(y2-y1)).lt.abs(real(x2-x1))) then
@@ -1070,10 +1079,10 @@ dx = (pr(1,2)-pr(1,1))/float(sr(1,2)-sr(1,1)-1)
 dy = (pr(2,2)-pr(2,1))/float(sr(2,2)-sr(2,1)-1)
 
 do i=1, size(XY,2) 
-   x = int(XY(1,i)/dx+pr(1,1)) + sr(1,1) + 1
-   y = -int((XY(2,i)+pr(2,2))/dy) + sr(2,2) - 1
+   x = int( (XY(1,i)-pr(1,1))/dx ) + sr(1,1) + 1
+   y = sr(2,2) -int((XY(2,i)-pr(2,1))/dy) + 1
    ! check if out or on terminal domain bounds
-   if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).and. &
+   if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).or. &
       & (y.ge.sr(2,2).or.y.le.sr(2,1)) ) cycle
    !if (fb%Lbuff) then ! writing to buffer
      k = pb%getrec(x,y)
@@ -1113,7 +1122,7 @@ do j = 2, n+1
    y = sr(2,2) -int((XY(j,i)-pr(2,1))/dy) + 1 
    if (i.gt.1) then
      ! check if out or on terminal domain bounds
-     if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).and. &
+     if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).or. &
         & (y.ge.sr(2,2).or.y.le.sr(2,1)) ) cycle
      call pb%line( ox,oy, x,y, px(j-1) )
      !write(0,*) x, y, sr(2,2), XY(j,i)/dy
