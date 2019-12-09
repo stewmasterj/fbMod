@@ -6,6 +6,7 @@
 Module fbMod
 implicit none
 
+! pixel buffer type
 type PixBuffType
  integer :: w, h, len, lline
  character(len=:), allocatable :: pb !(BGRA)
@@ -24,6 +25,7 @@ contains
  procedure :: line => pb_line
  procedure :: line2c => pb_line2c
  procedure :: linePolar => pb_linepolar
+ procedure :: linePolar2 => pb_linepolar2
  procedure :: rec => pb_rec
  procedure :: fillRec => pb_fillRec
  procedure :: putPixBuff => pb_putpic
@@ -37,10 +39,12 @@ contains
  procedure :: mplot => pb_mplot
  procedure :: heatPlot => pb_heatPlot
  procedure :: matrixPlot => pb_matrixPlot
+ procedure :: matrixPlot4 => pb_matrixPlot4
  procedure :: putNumber => pb_printNumber
  procedure :: putString => pb_printString
 end type
 
+! frame buffer is a pixel buffer type but with some extra stuff
 type, extends(PixBuffType) :: FrameBufferType
  integer :: FID !, w, h, line
  character(80) :: devicePath !, mode
@@ -53,6 +57,14 @@ contains
  procedure :: loadScreen => fb_read
 end type
 type(FrameBufferType) :: fb
+
+! procedural texture type for texturing triangles
+type ProcTexType
+ integer :: typ !texture pattern type
+ ! parameters are unique to the texture pattern type
+ integer, dimension(4) :: ip !integer parameters
+ real(4), dimension(4) :: rp !real parameters
+end type
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -306,33 +318,33 @@ subroutine RGB2HSV( r,g,b, h,s,v ) !{{{
 implicit none 
 integer, intent(in) :: r, g, b  !range 0-255
 integer, intent(out) :: h, s, v !
-real :: mn, mx, dl
+real :: mn, mx, dl, rh
 
-mn = min(r, g, b)
-mx = max(r, g, b)
-v = nint(mx)
+mn = real(min(r, g, b))
+mx = real(max(r, g, b))
+v = max(r,g,b) !nint(mx) !value
 
 dl = mx-mn
 
 if (mx.gt.1.e-3) then
- s = nint(dl/mx*255)
+ s = nint(dl/mx*255.0)
 else
  s = 0
  h = -1
  return
 endif
 
-if (r==nint(mx)) then
- h = nint(real(g-b)/dl)
-elseif (g==nint(mx)) then
- h = 2+nint(real(b-r)/dl)
-else
- h = 4+nint(real(r-g)/dl)
+if (r==v) then !nint(mx)) then ! if red is max
+ rh = real(g-b)/dl
+elseif (g==v) then !nint(mx)) then ! if green is max
+ rh = (2.0+real(b-r)/dl)
+else !if blue is max
+ rh = (4.0+real(r-g)/dl)
 endif
 
-h = h * 60 !degrees
-if (h.lt.0) h = h + 360
-h = nint(h *255./360.)
+rh = rh * 60.0 !degrees
+if (rh.lt.0.0) rh = rh + 360.0
+h = nint(rh *255./360.)
 
 end subroutine RGB2HSV !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -381,6 +393,163 @@ select case (i)
 end select
 
 end subroutine HSV2RGB !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+subroutine getProcTexture( px1,px2,px3, w, tx, px ) !{{{
+! returns the pixel value (px) of a procedural texture pattern (tx)
+! for the triangular fractional position (w) with corresponding colours (px123)
+implicit none
+character(4), intent(in) :: px1, px2, px3
+real(4), dimension(3), intent(in) :: w
+type(ProcTexType) :: tx
+character(4), intent(out) :: px
+
+integer, dimension(3) :: p, r, g, b, a, h, s, v, hsv !for integer colours, each corner
+real(4), dimension(3) :: f
+real(4) :: ss
+integer :: val
+
+r = (/ ichar(px1(3:3)), ichar(px2(3:3)), ichar(px3(3:3)) /)
+g = (/ ichar(px1(2:2)), ichar(px2(2:2)), ichar(px3(2:2)) /)
+b = (/ ichar(px1(1:1)), ichar(px2(1:1)), ichar(px3(1:1)) /)
+a = (/ ichar(px1(4:4)), ichar(px2(4:4)), ichar(px3(4:4)) /)
+
+f = w
+select case (tx%typ)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(1) ! stripes from node 1 to 2 ( nstripes = tx%ip(1) )
+ ! modify the w(1) parameter to produce stripes between point 1 and the others.
+ f(1) = real(tx%ip(1))*w(1)
+ f(1) = f(1) - int(f(1))
+ ! one component is changed, but scale the other two for sum(f) = 1.0
+ ! f1+s*f2+s*f3=1 : solve for s
+ ! f1+s*(f2+f3)=1 : s = (1-f1)/(f2+f3)
+ ss = (1.0-f(1))/sum(f(2:3))
+ f(2:3) = ss*f(2:3)
+ px(1:1) = char(nint( b(1)*f(1) +b(2)*f(2) +b(3)*f(3) ))
+ px(2:2) = char(nint( g(1)*f(1) +g(2)*f(2) +g(3)*f(3) ))
+ px(3:3) = char(nint( r(1)*f(1) +r(2)*f(2) +r(3)*f(3) ))
+ px(4:4) = char(nint( a(1)*f(1) +a(2)*f(2) +a(3)*f(3) ))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(2) ! checkerboard half gradient from node 1 to 2 and 3 to 2 (nstripes = tx%ip(1:2))
+ ! modify the w(1:2) parameters to produce checkerboard pattern.
+ f(1:2) = real(tx%ip(1:2))*w(1:2)
+ f(1:2) = f(1:2) - int(f(1:2))
+ ! two components are changed, but scale the other two for sum(f) = 1.0
+ ! s*(f1+f2)+f3=1 : solve for:  s = (1-f3)/(f2+f1)
+ ss = (1.0-f(3))/sum(f(1:2))
+ f(1:2) = ss*f(1:2)
+ px(1:1) = char(nint( b(1)*f(1) +b(2)*f(2) +b(3)*f(3) ))
+ px(2:2) = char(nint( g(1)*f(1) +g(2)*f(2) +g(3)*f(3) ))
+ px(3:3) = char(nint( r(1)*f(1) +r(2)*f(2) +r(3)*f(3) ))
+ px(4:4) = char(nint( a(1)*f(1) +a(2)*f(2) +a(3)*f(3) ))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(3) ! checkerboard triangle half gradient (nstripes = tx%ip(1:3))
+ ! modify the w(1:3) parameters to produce checkerboard pattern.
+ f = real(tx%ip(1:3))*w
+ f = f - int(f)
+ ! all components are changed, so scale them for sum(f) = 1.0
+ ! s*(f1+f2+f3)=1 : solve for:  s = 1.0/sum(f)
+ ss = 1.0/sum(f)
+ f = ss*f
+ px(1:1) = char(nint( b(1)*f(1) +b(2)*f(2) +b(3)*f(3) ))
+ px(2:2) = char(nint( g(1)*f(1) +g(2)*f(2) +g(3)*f(3) ))
+ px(3:3) = char(nint( r(1)*f(1) +r(2)*f(2) +r(3)*f(3) ))
+ px(4:4) = char(nint( a(1)*f(1) +a(2)*f(2) +a(3)*f(3) ))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(4) ! inner boarder along 1-2-3 not 1-3 edges.
+ ! boarder fraction outer tx%rp(1), hue&val of px1
+ ! boarder fraction inner tx%rp(2), hue&val of px2
+ ! inner block is hue&val of px3
+ call RGB2HSV(r(1),g(1),b(1), h(1),s(1),v(1))
+ call RGB2HSV(r(2),g(2),b(2), h(2),s(2),v(2))
+ call RGB2HSV(r(3),g(3),b(3), h(3),s(3),v(3))
+ val = s(1)*w(1) +s(2)*w(2) +s(3)*w(3)
+ if (w(1).lt.tx%rp(1) .or. w(3).lt.tx%rp(1)) then
+  call HSV2RGB(h(1),val,v(1), p(1),p(2),p(3))
+  px = char(p(1))//char(p(2))//char(p(3))//px1(4:4)
+ elseif (w(1).lt.tx%rp(2) .or. w(3).lt.tx%rp(2)) then
+  call HSV2RGB(h(2),val,v(2), p(1),p(2),p(3))
+  px = char(p(1))//char(p(2))//char(p(3))//px2(4:4)
+ else
+  call HSV2RGB(h(3),val,v(3), p(1),p(2),p(3))
+  px = char(p(1))//char(p(2))//char(p(3))//px3(4:4)
+ endif
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(5) !inner scribed ellipse?
+ ! center of circle at w=(0.5,0.0,0.5)
+ ! circle tangents at w=(0.5,0.0,1.0), w=(1.0,0.5,0.0)
+!1\
+ ! \
+ !  \
+ !   A
+ !C   \
+ !     \
+!2__U___\3
+ f = w-(/ 0.5, 0.0, 0.5 /) ! current - center
+ !ss = sum(f*f) ! sum of squares
+ ss = f(1)*f(1)+f(3)*f(3)
+ if (ss .lt. tx%rp(1)*tx%rp(1)) then ! in circle?
+  ! blend node 2 and 3
+  ss = ss/(tx%rp(1)*tx%rp(1)) !normalize to 1.0
+ px(1:1) = char(nint(b(2)*ss +b(3)*(1.0-ss) ))
+ px(2:2) = char(nint(g(2)*ss +g(3)*(1.0-ss) ))
+ px(3:3) = char(nint(r(2)*ss +r(3)*(1.0-ss) ))
+ px(4:4) = char(nint(a(2)*ss +a(3)*(1.0-ss) ))
+ else
+  px = px1
+ endif 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(6) !Perlin Noise for saturation and value, not Hue
+ ! requires a 2D vector w(1,3)
+ ! frequency: tx%rp(1)
+ ! amplitude: tx%rp(2)
+ ! weight the vertext colors together, like default
+ p(1) = nint( b(1)*w(1) +b(2)*w(2) +b(3)*w(3) )
+ p(2) = nint( g(1)*w(1) +g(2)*w(2) +g(3)*w(3) )
+ p(3) = nint( r(1)*w(1) +r(2)*w(2) +r(3)*w(3) )
+ ! convert to HSV
+ call RGB2HSV(p(1),p(2),p(3), hsv(1),hsv(2),hsv(3))
+ ! modify the saturation and value by noise
+ !hsv(2:3) = hsv(2:3) + nint(tx%rp(2)*(noise((/ w(1), w(3) /), tx%rp(1))-0.5))
+ hsv(2:3) = hsv(2:3) + nint(tx%rp(2)*(random((/ w(1), w(3) /))-0.5))
+ hsv(2) = min(max(hsv(2),0),255);  hsv(3) = min(max(hsv(3),0),255)
+ ! convert HSV back to RGB
+ call HSV2RGB(hsv(1),hsv(2),hsv(3), p(1),p(2),p(3))
+
+ px = char(p(1))//char(p(2))//char(p(3))
+ px(4:4) = char(nint( a(1)*w(1) +a(2)*w(2) +a(3)*w(3) ))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case(7) !fractal brownian motion Perlin Noise for saturation and value, not Hue
+ ! requires a 2D vector w(1,3)
+ ! frequency: tx%rp(1)
+ ! amplitude: tx%rp(2)
+ ! weight the vertext colors together, like default
+ p(1) = nint( b(1)*w(1) +b(2)*w(2) +b(3)*w(3) )
+ p(2) = nint( g(1)*w(1) +g(2)*w(2) +g(3)*w(3) )
+ p(3) = nint( r(1)*w(1) +r(2)*w(2) +r(3)*w(3) )
+ ! convert to HSV
+ call RGB2HSV(p(1),p(2),p(3), hsv(1),hsv(2),hsv(3))
+ ! modify the saturation and value by noise
+ !hsv(2:3) = hsv(2:3) + nint(tx%rp(2)*(noise((/ w(1), w(3) /), tx%rp(1))-0.5))
+ !hsv(2:3) = hsv(2:3) + nint(tx%rp(2)*(random((/ w(1), w(3) /))-0.5))
+ hsv(2:3) = hsv(2:3) + nint(tx%rp(4)*(fbm((/ w(1), w(3) /), tx%rp(1), tx%rp(2), tx%ip(1), tx%rp(3), tx%ip(2))-0.5))
+ hsv(2) = min(max(hsv(2),0),255);  hsv(3) = min(max(hsv(3),0),255)
+ ! convert HSV back to RGB
+ call HSV2RGB(hsv(1),hsv(2),hsv(3), p(1),p(2),p(3))
+
+ px = char(p(1))//char(p(2))//char(p(3))
+ px(4:4) = char(nint( a(1)*w(1) +a(2)*w(2) +a(3)*w(3) ))
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+case default !simple interpolation
+ px(1:1) = char(nint( b(1)*w(1) +b(2)*w(2) +b(3)*w(3) ))
+ px(2:2) = char(nint( g(1)*w(1) +g(2)*w(2) +g(3)*w(3) ))
+ px(3:3) = char(nint( r(1)*w(1) +r(2)*w(2) +r(3)*w(3) ))
+ px(4:4) = char(nint( a(1)*w(1) +a(2)*w(2) +a(3)*w(3) ))
+end select
+
+end subroutine getProcTexture !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 !  SHAPES
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -465,54 +634,60 @@ end subroutine pb_filltriangle !}}}
 !      each vertex has color px1, px2, px3, fill colour interpolates
 !      within bounds, sb
 !      Can use with zbuffer.
-subroutine pb_filltriangle3c( pb, x1,y1, x2,y2, x3,y3, px1,px2,px3, sb, z1,z2,z3 ) !{{{
+subroutine pb_filltriangle3c( pb, x1,y1, x2,y2, x3,y3, px1,px2,px3, sb, z1,z2,z3, tx)!{{{
 implicit none
 class(PixBuffType) :: pb
-integer(4), dimension(2,3) :: ps
 integer(4), intent(in) :: x1, x2, x3, y1, y2, y3
 character(4), intent(in) :: px1, px2, px3
-character(4) :: pxl1, pxl2, pxl3
 integer, dimension(2,2), optional, intent(in) :: sb
 real(4), optional, intent(in) :: z1,z2,z3
+type(ProcTexType), optional, intent(in) :: tx
+
+integer(4), dimension(2,3) :: ps
+character(4) :: pxl1, pxl2, pxl3
+logical :: texture
 integer(4) :: xs, xe, y, r, x, idenom
 character(4) :: px
 real(4), dimension(3) :: w
-integer(4)  :: dy23, dy31, dx32, dx13, dy13
+integer(4)  :: dy23, dy31, dx32, dx13, dy13, ord(3)
 real(4) :: denom, z, zp(3)
+
+texture = .false.
+if (present(tx)) texture = .true.
 
 ! sort point from top to bottom
 if (present(z1)) then !{{{
   if (y1.le.y2 .and.y1.le.y3) then
-   ps(:,1) = (/ x1, y1 /); zp(1) = z1; pxl1 = px1
-   if (y2<y3) then; ps(:,2)=(/x2,y2/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z2,z3/); pxl2=px2; pxl3=px3
-   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z3,z2/); pxl2=px3; pxl3=px2
+   ps(:,1) = (/ x1, y1 /); zp(1) = z1; pxl1 = px1; ord(1) = 1
+   if (y2<y3) then; ps(:,2)=(/x2,y2/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z2,z3/); pxl2=px2; pxl3=px3; ord(2:3) = (/2,3/)
+   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z3,z2/); pxl2=px3; pxl3=px2; ord(2:3) = (/3,2/)
    endif
   elseif (y2.le.y1 .and.y2.le.y3) then
-   ps(:,1) = (/ x2, y2 /); zp(1) = z2; pxl1 = px2
-   if (y1<y3) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z1,z3/); pxl2=px1;pxl3=px3
-   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z3,z1/); pxl2=px3;pxl3=px1
+   ps(:,1) = (/ x2, y2 /); zp(1) = z2; pxl1 = px2; ord(1) = 2
+   if (y1<y3) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x3,y3/); zp(2:3)=(/z1,z3/); pxl2=px1;pxl3=px3; ord(2:3) = (/1,3/)
+   else;            ps(:,2)=(/x3,y3/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z3,z1/); pxl2=px3;pxl3=px1; ord(2:3) = (/3,1/)
    endif
   else
-   ps(:,1) = (/ x3, y3 /); zp(1) = z3; pxl1 = px3
-   if (y1<y2) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z1,z2/); pxl2=px1;pxl3=px2
-   else;            ps(:,2)=(/x2,y2/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z2,z1/); pxl2=px2;pxl3=px1
+   ps(:,1) = (/ x3, y3 /); zp(1) = z3; pxl1 = px3; ord(1) = 3
+   if (y1<y2) then; ps(:,2)=(/x1,y1/); ps(:,3)=(/x2,y2/); zp(2:3)=(/z1,z2/); pxl2=px1;pxl3=px2; ord(2:3) = (/1,2/)
+   else;            ps(:,2)=(/x2,y2/); ps(:,3)=(/x1,y1/); zp(2:3)=(/z2,z1/); pxl2=px2;pxl3=px1; ord(2:3) = (/2,1/)
    endif
   endif
 else
   if (y1.le.y2 .and.y1.le.y3) then
-   ps(:,1) = (/ x1, y1 /); pxl1 = px1
-   if (y2 < y3) then; ps(:,2) = (/x2,y2/); ps(:,3) = (/x3,y3/); pxl2=px2; pxl3=px3
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x2,y2/); pxl2=px3; pxl3=px2
+   ps(:,1) = (/ x1, y1 /); pxl1 = px1; ord(1) = 1
+   if (y2 < y3) then; ps(:,2) = (/x2,y2/); ps(:,3) = (/x3,y3/); pxl2=px2; pxl3=px3; ord(2:3) = (/2,3/)
+   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x2,y2/); pxl2=px3; pxl3=px2; ord(2:3) = (/3,2/)
    endif
   elseif (y2.le.y1 .and.y2.le.y3) then
-   ps(:,1) = (/ x2, y2 /); pxl1 = px2
-   if (y1 < y3) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x3,y3/); pxl2=px1;pxl3=px3
-   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x1,y1/); pxl2=px3;pxl3=px1
+   ps(:,1) = (/ x2, y2 /); pxl1 = px2; ord(1) = 2
+   if (y1 < y3) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x3,y3/); pxl2=px1;pxl3=px3; ord(2:3) = (/1,3/)
+   else;              ps(:,2) = (/x3,y3/); ps(:,3) = (/x1,y1/); pxl2=px3;pxl3=px1; ord(2:3) = (/3,1/)
    endif
   else
-   ps(:,1) = (/ x3, y3 /); pxl1 = px3 
-   if (y1 < y2) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x2,y2/); pxl2=px1;pxl3=px2
-   else;              ps(:,2) = (/x2,y2/); ps(:,3) = (/x1,y1/); pxl2=px2;pxl3=px1
+   ps(:,1) = (/ x3, y3 /); pxl1 = px3 ; ord(1) = 3
+   if (y1 < y2) then; ps(:,2) = (/x1,y1/); ps(:,3) = (/x2,y2/); pxl2=px1;pxl3=px2; ord(2:3) = (/1,2/)
+   else;              ps(:,2) = (/x2,y2/); ps(:,3) = (/x1,y1/); pxl2=px2;pxl3=px1; ord(2:3) = (/2,1/)
    endif
   endif
 endif !}}}
@@ -566,6 +741,7 @@ do y=ps(2,1), ps(2,2) !only raster down to medium y point
         endif
       endif
     endif
+    if (.not.texture) then
     ! use the weights to interpolate each RGB value
     !px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3)))
     !px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3)))
@@ -573,6 +749,10 @@ do y=ps(2,1), ps(2,2) !only raster down to medium y point
     px(1:1) = char(nint( ichar(pxl1(1:1))*w(1) +ichar(pxl2(1:1))*w(2) +ichar(pxl3(1:1))*w(3)))
     px(2:2) = char(nint( ichar(pxl1(2:2))*w(1) +ichar(pxl2(2:2))*w(2) +ichar(pxl3(2:2))*w(3)))
     px(3:3) = char(nint( ichar(pxl1(3:3))*w(1) +ichar(pxl2(3:3))*w(2) +ichar(pxl3(3:3))*w(3)))
+    else
+      ! reorder the weights according to input order not height order
+      call getProcTexture( px1,px2,px3, (/w(ord(1)),w(ord(2)),w(ord(3))/), tx, px )
+    endif
     !if (fb%Lbuff) then
       pb%pb(r:r+3) = px
     !else
@@ -615,6 +795,7 @@ do y=ps(2,2), ps(2,3) !only raster down from medium y point to bottom
         endif
       endif
     endif
+    if (.not.texture) then
     ! use the weights to interpolate each RGB value
     !px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) +ichar(px3(1:1))*w(3) ))
     !px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) +ichar(px3(2:2))*w(3) ))
@@ -622,6 +803,10 @@ do y=ps(2,2), ps(2,3) !only raster down from medium y point to bottom
     px(1:1) = char(nint( ichar(pxl1(1:1))*w(1) +ichar(pxl2(1:1))*w(2) +ichar(pxl3(1:1))*w(3) ))
     px(2:2) = char(nint( ichar(pxl1(2:2))*w(1) +ichar(pxl2(2:2))*w(2) +ichar(pxl3(2:2))*w(3) ))
     px(3:3) = char(nint( ichar(pxl1(3:3))*w(1) +ichar(pxl2(3:3))*w(2) +ichar(pxl3(3:3))*w(3) ))
+    else
+      ! reorder the weights according to input order not height order
+      call getProcTexture( px1,px2,px3, (/w(ord(1)),w(ord(2)),w(ord(3))/), tx, px )
+    endif
     !if (fb%Lbuff) then
       pb%pb(r:r+3) = px
     !else
@@ -707,10 +892,10 @@ if ((y2-y1).ne.0) LY=.true.
 if (.not.LX .and. .not.LY) then
   !if (fb%Lbuff) then
     if (pb%Lzbuff) then
-      if (pb%zbuff(x,y).gt.0.0.and.min(z1,z2).gt.pb%zbuff(x,y)) then !then it's behind what is already rendered
+      if (pb%zbuff(x1,y1).gt.0.0.and.min(z1,z2).gt.pb%zbuff(x1,y1)) then !then it's behind what is already rendered
         Return
       else
-        pb%zbuff(x,y) = min(z1,z2) !save this to the Z-buffer and render it, since it's the closest
+        pb%zbuff(x1,y1) = min(z1,z2) !save this to the Z-buffer and render it, since it's the closest
       endif
     endif
     k = pb%getrec(x1,y1)
@@ -845,6 +1030,7 @@ logical, optional :: alpha
 type(PixBuffType) :: pb2
 logical :: al
 
+al = .false.
 if (present(alpha)) al = alpha
 
 if (al) then !do alpha channel mixing
@@ -987,6 +1173,22 @@ real(kind=4) :: deg
   call pb%line(x,y,x+nint(r*cos(deg)),y-nint(r*sin(deg)), px)
 end subroutine pb_linepolar !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! pb_linepolar2( x, y, r1, r2, theta, px )
+!      Draw a line from point with radius and angle to the terminal directly
+!   Angle in degrees
+subroutine pb_linepolar2(pb, x,y,r1,r2,theta,px) !{{{
+implicit none
+class(PixBuffType) :: pb
+integer(kind=4) :: x,y,theta,r1,r2
+character(4) :: px
+real(kind=4) :: deg
+ deg=theta/57.2957795130823
+ !write(6,*) nint(r*cos(deg)), x,y, r, deg
+ !    write(6,*) nint(r*sin(deg))
+  call pb%line(x+nint(r1*cos(deg)),y-nint(r1*sin(deg)), &
+          &    x+nint(r2*cos(deg)),y-nint(r2*sin(deg)), px)
+end subroutine pb_linepolar2 !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 ! pb_circle( x, y, r, px )
 !   draw a circle centered at location (x,y) with radius of, r. and color, px
 subroutine pb_circle( pb, x, y, r, px ) !{{{
@@ -1007,6 +1209,35 @@ do i = -i1, i1
 enddo
 
 end subroutine pb_circle !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! pb_semicircle( x, y, r, px )
+!   draw a semicircle centered at location (x,y) with radius of, r. 
+!   from angle t1 to t2, and color, px
+subroutine pb_semicircle( pb, x, y, r, t1, t2, px ) !{{{
+implicit none
+class(PixBuffType) :: pb
+integer, intent(in) :: x, y, r
+character(4), intent(in) :: px
+integer :: i, i1, j, t1, t2
+real(kind=4) :: d1, d2, a
+d1 = tan(t1/57.2957795130823) ! radian
+d2 = tan(t2/57.2957795130823)
+i1 = nint(real(r)/sqrt(2.0))
+! draw upper and lower curves first
+! draw left and right curves second
+do i = -i1, i1
+  j = nint(sqrt(real(r*r-i*i)))
+  a = (real(j)/real(i))
+  if (a.ge.d1 .and. a.le.d2)   call pb%putPixel( i+x, j+y, px)
+  a = (real(-j)/real(i))
+  if (a.ge.d1 .and. a.le.d2)   call pb%putPixel( i+x,-j+y, px)
+  a = (real(i)/real(j))
+  if (a.ge.d1 .and. a.le.d2)   call pb%putPixel( j+x, i+y, px)
+  a = (real(-i)/real(-j))
+  if (a.ge.d1 .and. a.le.d2)   call pb%putPixel(-j+x,-i+y, px)
+enddo
+
+end subroutine pb_semicircle !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 ! pb_fillcircle( x, y, r, px )
 !   draw a circle centered at location (x,y) with radius of, r. and color, px
@@ -1207,10 +1438,10 @@ do i=1, size(XYZ,1)
    y = -int(real(j)/dy) + sr(2,2) - 1
    select case(cr)
    case("bw  ") 
-      k = int((XYZ(i,j)-ar(1))/dz)
+      k = int((max(min(XYZ(i,j),ar(2)),ar(1))-ar(1))/dz)
       px = char(k)//char(k)//char(k)//char(0)
    case("rgb ") 
-      k = int((XYZ(i,j)-ar(1))*2.0/dz)
+      k = int((max(min(XYZ(i,j),ar(2)),ar(1))-ar(1))*2.0/dz)
       if (k.le.255) then
         px = char(255-k)//char(k)//char(0)//char(0)
       else 
@@ -1218,7 +1449,7 @@ do i=1, size(XYZ,1)
         px = char(0)//char(255-k)//char(k)//char(0)
       endif
    case default
-      k = int((XYZ(i,j)-ar(1))/dz)
+      k = int((max(min(XYZ(i,j),ar(2)),ar(1))-ar(1))/dz)
       px = char(k)//char(k)//char(k)//char(0)
    end select
    ! check if out or on terminal domain bounds
@@ -1234,6 +1465,50 @@ do i=1, size(XYZ,1)
 enddo
 
 end subroutine pb_matrixplot !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! pb_matrixplot4( XYZU, ar, sr, cr )
+!   plot data XYZU within the plot range pr into a pixel domain sr
+! two outputs for a given (x,y) coordinate, Z and U
+subroutine pb_matrixplot4( pb, XYZ, ar, sr, hr ) !{{{
+implicit none
+class(PixBuffType) :: pb
+real(4), dimension(:,:,:), intent(in) :: XYZ
+integer, dimension(2,2), intent(in) :: sr
+real(4), dimension(2,2), intent(in) :: ar
+real(4), dimension(2), intent(in) :: hr !hue range [0:1)
+!character(4), intent(in) :: cr !color range type
+character(4) :: px
+integer :: i, j, x, y, k, h, s, v, r, g, b
+real(4) :: dx, dy, dz, du
+
+! if there's too much data to fit, it must be binned
+dx = float(size(XYZ,1))/float(sr(1,2)-sr(1,1)-1)
+dy = float(size(XYZ,2))/float(sr(2,2)-sr(2,1)-1)
+dz = (ar(1,2)-ar(1,1))/(255.0*(hr(2)-hr(1)))
+du = (ar(2,2)-ar(2,1))/255.0
+
+do i=1, size(XYZ,1) 
+ do j=1, size(XYZ,2)
+   x = int(real(i)/dx) + sr(1,1) + 1
+   y = -int(real(j)/dy) + sr(2,2) - 1
+   ! check if out or on terminal domain bounds
+   if ( (x.ge.sr(1,2).or.x.le.sr(1,1)).or. &
+      & (y.ge.sr(2,2).or.y.le.sr(2,1)) ) cycle
+   h = int((max(min(XYZ(i,j,1),ar(1,2)),ar(1,1))-ar(1,1))/dz +hr(1)*255.0)
+   s =  255
+   v = int((max(min(XYZ(i,j,2),ar(2,2)),ar(2,1))-ar(2,1))/du)
+   call HSV2RGB(h,s,v, r,g,b)
+   px = char(b)//char(g)//char(r)//char(0)
+   !if (fb%Lbuff) then ! writing to buffer
+     k = pb%getrec(x,y)
+     pb%pb(k:k+3) = px
+   !else    !writing directly to frame buffer device.
+   !  write(fb%FID,REC=getrec(x,y)) px
+   !endif
+ enddo
+enddo
+
+end subroutine pb_matrixplot4 !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 ! pb_printNumber(n, x, y, s, fpx, bpx)
 !   print a monochrome digit, n, at location, x, y, with size, s, and color, px.
@@ -1998,5 +2273,109 @@ else
 endif
 end subroutine pb_printString !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+
+! Noise routines !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+! routines converted from: https://thebookofshaders.com/13/
+!  and the wiki page on Perlin noise.
+! I didn't make these, just converted to fortran
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! this isn't that random, but kinda looks it.
+! this must be deterministic.
+function random( v ) !{{{
+implicit none
+real(4), dimension(2), intent(in) :: v
+real(4) :: random, b
+real(4), dimension(2) :: a
+
+!!!!!!!!!! function 1 !!!!!!!!!!!!!
+a = (/ 12.9898, 78.233 /)
+b = sin(dot_product(v,a))*43758.5453123
+
+!!!!!!!!!! function 2 !!!!!!!!!!!!!
+! hash() from https://www.shadertoy.com/view/4dS3Wd
+!a = (/ 17.0, 13.0 /)
+!b = 1.e4*sin(a(1)*v(1) +v(2)*0.1) *(0.1-abs( sin(v(2)*a(2) +v(1)) ))
+
+!!!!!!!!!! function 3 !!!!!!!!!!!!!
+!a = (/ 1.0, 0.5 /)
+!b = 1234.5*dot_product(v,a)
+
+random = b -floor(b)
+
+end function random !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! perlin Noise, range from 0-1
+function noise( v, q ) !{{{
+implicit none
+!integer :: seed
+real(4), dimension(2), intent(in) :: v
+real(4) :: q, noise, a, b, c, d, pi, unt, x1, x2
+real(4), dimension(2) :: i, f, u
+
+pi = 3.141596535
+
+unt = 1.0/q  ! unit 
+i = floor(v/unt) ! integer of v
+f = mod(v,unt)/unt     ! remainder [0:1)
+u = 0.5*(1.0-cos(pi*f))  ! Perlin noise?
+!u = 1.0-cos(2.0*pi*f)
+
+!a = 1.0; b = 1.0; c = 1.0; d = 1.0
+! four corners in 2D of a tile
+a = random(i)
+b = random(i +(/ 1.0, 0.0 /) )
+c = random(i +(/ 0.0, 1.0 /) )
+d = random(i +(/ 1.0, 1.0 /) )
+
+!u = f*f*(3.0 -2.0*f)
+!u = f
+x1 = a*(1.0-u(1)) +b*u(1) ! mix(a,b,u(1))
+x2 = c*(1.0-u(1)) +d*u(1) ! mix(c,d,u(1))
+noise = x1*(1.0-u(2)) +x2*u(2) ! mix(x1,x2,u(2))
+
+!noise = a*(1.0-u(1)) +b*u(1) +(c-a)*u(2)*(1.0-u(1)) &
+!    &   +(d-b)*u(1)*u(2) 
+
+!a = 1.0-(a-0.5)*0.2 !/(seed+3.0)
+!b = u(1)-(b-0.5)*0.2 !/(i(1)+12.0)
+!c = u(2)-(c-0.5)*0.2  !/(i(2)+12.0)
+!noise = a*sin(b*pi*2)*sin(c*pi*2)
+
+end function noise !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! fractal brownian motion
+function fbm( v, lac, gain, oct, ifreq, pow ) !{{{
+implicit none
+real(4), dimension(2), intent(in) :: v
+real(4), intent(in) :: lac, gain, ifreq
+integer, intent(in) :: oct, pow !number of octaves
+real(4), dimension(2) :: st
+real(4) :: fbm, val, amp, normk, freq
+integer :: i
+
+st = v
+amp = 1.0
+
+! changing initial frequency does weird things
+freq = ifreq !0.5 !4.0
+
+normk=0.
+val = 0.0
+! loop over octaves
+do i = 1, oct
+  val = val +amp*noise( st, freq )
+  st = st*lac !lacunarity
+  freq = freq*lac !lacunarity
+  amp = amp*gain !gain
+  normk = normk+amp
+enddo
+fbm = val/normk
+
+! changing this power stratifies highs from lows
+fbm = fbm**pow
+
+end function fbm !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
+
 
 end module fbMod
