@@ -487,7 +487,7 @@ case(4) ! inner boarder along 1-2-3 not 1-3 edges.
  call RGB2HSV(r(1),g(1),b(1), h(1),s(1),v(1))
  call RGB2HSV(r(2),g(2),b(2), h(2),s(2),v(2))
  call RGB2HSV(r(3),g(3),b(3), h(3),s(3),v(3))
- val = s(1)*w(1) +s(2)*w(2) +s(3)*w(3)
+ val = nint(real(s(1))*w(1) +real(s(2))*w(2) +real(s(3))*w(3))
  if (w(1).lt.tx%rp(1) .or. w(3).lt.tx%rp(1)) then
   call HSV2RGB(h(1),val,v(1), p(1),p(2),p(3))
   px = char(p(1))//char(p(2))//char(p(3))//px1(4:4)
@@ -979,6 +979,7 @@ if (LX .and. abs(real(y2-y1)).lt.abs(real(x2-x1))) then
     px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) ))
     px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) ))
     px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) ))
+    px(4:4) = char(nint( ichar(px1(4:4))*w(1) +ichar(px2(4:4))*w(2) ))
     !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',PS(i,x1,y1,x2,y2),';',i,'H', "*"
     if (trans) then
       pb%pb(r:r+3) = pb%blendpx( r, px )
@@ -1019,6 +1020,7 @@ else
     px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) ))
     px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) ))
     px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) ))
+    px(4:4) = char(nint( ichar(px1(4:4))*w(1) +ichar(px2(4:4))*w(2) ))
     if (trans) then
       pb%pb(r:r+3) = pb%blendpx( r, px )
     else
@@ -1346,7 +1348,7 @@ dir(:,4) = (/  1,  1 /)
 do i = 0, r ! vertical raster
   j1 = nint(sqrt(ra-real(i*i)))
   do j = 0, j1 !horizonal raster
-    d = sqrt( 1.0-real(j*j+i*i)/real(r*r) )
+    d = sqrt( max(0.0,1.0-real(j*j+i*i)/real(r*r)) )
     ic(1) = int(real(iachar(px(1:1)))*d)
     ic(2) = int(real(iachar(px(2:2)))*d)
     ic(3) = int(real(iachar(px(3:3)))*d)
@@ -1387,7 +1389,7 @@ real(4), optional, intent(in) :: z
 integer, dimension(2,2), optional, intent(in) :: sb
 character(4), intent(in) :: px
 character(4) :: lp ! local pixel
-integer :: i, j, k, j1, ic(3), cc(2,4), dir(2,4)
+integer :: i, j, k, j1, cc(2,4), dir(2,4)
 real :: ra, d
 ! augment radius by a fraction of a pixel to prevent single pixel top and bottom
 ra = real(r)+0.4
@@ -1407,10 +1409,11 @@ do i = 0, r ! vertical raster
   j1 = nint(sqrt(ra-real(i*i)))
   do j = 0, j1 !horizonal raster
     ! scale transparency byte up to full when distance = r
+    ! dist=r then d=1.0, if dist=0 then d=0.0
     d = 1.0-sqrt( max(0.0,1.0-real(j*j+i*i)/ra) )
     lp = px
-    !lp(4:4) = char(int(real(iachar(px(4:4)))*d))
-    lp(4:4) = char(min(nint(255.0*d),255))
+    lp(4:4) = char(min(nint( 255.0*d +real(iachar(px(4:4)))*(1.0-d) ),255))
+    !lp(4:4) = char(min(nint( 255.0*d ),255))
     cc(1,:) = j; cc(2,:) = i
     cc = dir*cc
     cc(1,:) = cc(1,:)+x; cc(2,:) = cc(2,:)+y
