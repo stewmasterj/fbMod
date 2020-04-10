@@ -131,10 +131,22 @@ call fb%putString("abcdefghijklmnopqrstuvwxy z", 1000, 360, 1, px, bpx)
 ! test a circle
 !call fb_circle(1300, 500, 40, px)
 call fb%fillCircle(1300, 500, 40, px)
+! test a partially transparent red circle
+px = char(50)//char(50)//char(250)//char(128)
+call fb%fillCircle(1260, 500, 40, px)
+call fb%fillCircle(1250, 500, 40, px)
+call fb%fillCircle(1240, 500, 40, px)
+call fb%fillCircle(1230, 500, 40, px)
+call fb%fillCircle(1220, 500, 40, px)
+
 ! test a blured rectangle (quarter of the circle
 call fb%blurRec( 1290, 490, 1350, 550, 10.0 )
 
+px = char(50)//char(250)//char(50)//char(0)
 call fb%sphere(1300, 400, 40, px)
+call fb%fillRec(1100, 400, 1220, 460, magenta)
+! demonstrate a cloud or spheircal transparency.
+call fb%cloud(1220, 400, 40, px)
 
 ! test triangle fill
 call fb%filltriangle( 700,600, 750,550, 780,630, px )

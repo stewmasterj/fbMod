@@ -16,6 +16,7 @@ contains
  procedure :: init => pb_initPixBuff
  procedure :: save => pb_dump
  procedure :: getrec 
+ procedure :: blendpx
  procedure :: loadPPM => pb_PPM2PixBuff
  procedure :: putPixel => pb_pixel
  procedure :: getPixel => pb_getPixel
@@ -35,6 +36,7 @@ contains
  procedure :: circle => pb_circle
  procedure :: fillCircle => pb_fillcircle
  procedure :: sphere => pb_sphere
+ procedure :: cloud => pb_cloud
  procedure :: plot => pb_plot
  procedure :: mplot => pb_mplot
  procedure :: heatPlot => pb_heatPlot
@@ -281,12 +283,13 @@ class(PixBuffType) :: pb
 integer, intent(in) :: x, y
 integer :: k
 character(4), intent(in) :: px
-!if (fb%Lbuff) then
  k = pb%getrec(x,y)
+! check for transparency byte
+if (ichar(px(4:4)).gt.0) then
+ pb%pb(k:k+3) = pb%blendpx(k,px)
+else
  pb%pb(k:k+3) = px
-!else
-! write(fb%FID,REC=getrec(x,y)) px
-!endif
+endif
 end subroutine !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 subroutine pb_getPixel(pb, x,y,px) !{{{
@@ -303,13 +306,34 @@ k = pb%getrec(x,y)
 !endif
 end subroutine pb_getPixel !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
-subroutine pb_clear( pb, b ) !{{{
+! blend current pixel at pb record k with pixel p2 alpha channel.
+function blendpx( pb, k, p2 ) !{{{
+implicit none
 class(PixBuffType) :: pb
-integer, optional, intent(in) :: b
-integer :: bb
-bb = 0 !default byte to write is NULL
-if (present(b)) bb=b
-pb%pb = repeat(char(bb),4*pb%lline*pb%h)
+integer, intent(in) :: k
+character(4), intent(in) :: p2
+character(4) :: blendpx, p1
+integer :: t
+real(4) :: v
+
+t = ichar(p2(4:4)) ! transparency magnitude 0=opaque, 255=novalue
+v = real(t)/255.0
+
+p1 = pb%pb(k:k+3)
+
+blendpx(1:1) = char(nint( real(ichar(p1(1:1)))*v +real(ichar(p2(1:1)))*(1.0-v) ))
+blendpx(2:2) = char(nint( real(ichar(p1(2:2)))*v +real(ichar(p2(2:2)))*(1.0-v) ))
+blendpx(3:3) = char(nint( real(ichar(p1(3:3)))*v +real(ichar(p2(3:3)))*(1.0-v) ))
+blendpx(4:4) = char(0)
+end function blendpx !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+subroutine pb_clear( pb, px ) !{{{
+class(PixBuffType) :: pb
+character(4), optional, intent(in) :: px
+character(4) :: bb
+bb = char(0)//char(0)//char(0)//char(0) !default byte to write is NULL
+if (present(px)) bb=px
+pb%pb = repeat(bb,pb%lline*pb%h)
 if (pb%Lzbuff) pb%zbuff = -1.0 !clear Z-Buffer as well (-1 is INF)
 end subroutine pb_clear !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -827,46 +851,60 @@ implicit none
 class(PixBuffType) :: pb
 integer(kind=4) :: x1,x2,y1,y2, x, y, r, k
 character(4) :: px
-logical :: LX, LY
+logical :: LX, LY, trans
 LX=.false.
 LY=.false.
+trans=.false.
 if ((x2-x1).ne.0) LX=.true.
 if ((y2-y1).ne.0) LY=.true.
+if (ichar(px(4:4)).gt.0.or.ichar(px(4:4)).gt.0) trans=.true.
 ! check for same starting and end point
 if (.not.LX .and. .not.LY) then
-  !if (fb%Lbuff) then
-    k = pb%getrec(x1,y1)
+  k = pb%getrec(x1,y1)
+  if (trans) then
+    pb%pb(k:k+3) = pb%blendpx( k, px )
+  else
     pb%pb(k:k+3) = px
-  !else
-  !  write(fb%FID,REC=getrec(x1,y1)) px
-  !endif
+  endif
   RETURN
 endif
 
 if (LX .and. abs(real(y2-y1)).lt.abs(real(x2-x1))) then
-  do x=min(x1,x2),max(x1,x2)
-    y = PointSlope(x,x1,y1,x2,y2)
-    r = pb%getrec(x,y)
-    if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
-    !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',PS(i,x1,y1,x2,y2),';',i,'H', "*"
-    !if (fb%Lbuff) then
+  if (trans) then
+    do x=min(x1,x2),max(x1,x2)
+      y = PointSlope(x,x1,y1,x2,y2)
+      r = pb%getrec(x,y)
+      if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
+      !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',PS(i,x1,y1,x2,y2),';',i,'H', "*"
+      pb%pb(r:r+3) = pb%blendpx( r, px )
+    end do
+  else
+    do x=min(x1,x2),max(x1,x2)
+      y = PointSlope(x,x1,y1,x2,y2)
+      r = pb%getrec(x,y)
+      if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
+      !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',PS(i,x1,y1,x2,y2),';',i,'H', "*"
       pb%pb(r:r+3) = px
-    !else
-    !  write(fb%FID,REC=r) px
-    !endif
-  end do
+    end do
+  endif
 else
-  do y=min(y1,y2),max(y1,y2)
-    x = PointSlope(y,y1,x1,y2,x2)
-    r = pb%getrec(x,y)
-    if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
-    !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',i,';',PS(i,y1,x1,y2,x2),'H', "*"
-    !if (fb%Lbuff) then
+  if (trans) then
+    do y=min(y1,y2),max(y1,y2)
+      x = PointSlope(y,y1,x1,y2,x2)
+      r = pb%getrec(x,y)
+      if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
+      !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',i,';',PS(i,y1,x1,y2,x2),'H', "*"
+      pb%pb(r:r+3) = pb%blendpx( r, px )
+    end do
+  else
+    do y=min(y1,y2),max(y1,y2)
+      x = PointSlope(y,y1,x1,y2,x2)
+      r = pb%getrec(x,y)
+      if (r.le.0) write(0,*) "fb Byte < 0. (x,y)=",x, y, x1, y1, x2, y2
+      !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',i,';',PS(i,y1,x1,y2,x2),'H', "*"
       pb%pb(r:r+3) = px
-    !else
-    !  write(fb%FID,REC=r) px
-    !endif
-  end do
+    end do
+  endif
 endif
 end subroutine pb_line !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
@@ -883,26 +921,28 @@ character(4) :: px1,px2, px
 real(4), optional, intent(in) :: z1,z2
 real(4) :: z, w(2), zp(2)
 integer, dimension(2,2), optional, intent(in) :: sb
-logical :: LX, LY
+logical :: LX, LY, trans
 LX=.false.
 LY=.false.
+trans=.false. ! transparency check
 if ((x2-x1).ne.0) LX=.true.
 if ((y2-y1).ne.0) LY=.true.
+if (ichar(px1(4:4)).gt.0.or.ichar(px2(4:4)).gt.0) trans=.true.
 ! check for same starting and end point
 if (.not.LX .and. .not.LY) then
-  !if (fb%Lbuff) then
-    if (pb%Lzbuff) then
-      if (pb%zbuff(x1,y1).gt.0.0.and.min(z1,z2).gt.pb%zbuff(x1,y1)) then !then it's behind what is already rendered
-        Return
-      else
-        pb%zbuff(x1,y1) = min(z1,z2) !save this to the Z-buffer and render it, since it's the closest
-      endif
+  if (pb%Lzbuff) then
+    if (pb%zbuff(x1,y1).gt.0.0.and.min(z1,z2).gt.pb%zbuff(x1,y1)) then !then it's behind what is already rendered
+      Return
+    else
+      pb%zbuff(x1,y1) = min(z1,z2) !save this to the Z-buffer and render it, since it's the closest
     endif
-    k = pb%getrec(x1,y1)
+  endif
+  k = pb%getrec(x1,y1)
+  if (trans) then
+    pb%pb(k:k+3) = pb%blendpx( k, px1 )
+  else
     pb%pb(k:k+3) = px1
-  !else
-  !  write(fb%FID,REC=getrec(x1,y1)) px1
-  !endif
+  endif
   RETURN
 endif
 
@@ -940,11 +980,11 @@ if (LX .and. abs(real(y2-y1)).lt.abs(real(x2-x1))) then
     px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) ))
     px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) ))
     !write(6,'(a2,i3.3,a1,i3.3,2a1)') char(27)//'[',PS(i,x1,y1,x2,y2),';',i,'H', "*"
-    !if (fb%Lbuff) then
+    if (trans) then
+      pb%pb(r:r+3) = pb%blendpx( r, px )
+    else
       pb%pb(r:r+3) = px
-    !else
-    !  write(fb%FID,REC=r) px
-    !endif
+    endif
   end do
 else
   m1=min(y1,y2)
@@ -979,11 +1019,11 @@ else
     px(1:1) = char(nint( ichar(px1(1:1))*w(1) +ichar(px2(1:1))*w(2) ))
     px(2:2) = char(nint( ichar(px1(2:2))*w(1) +ichar(px2(2:2))*w(2) ))
     px(3:3) = char(nint( ichar(px1(3:3))*w(1) +ichar(px2(3:3))*w(2) ))
-    !if (fb%Lbuff) then
+    if (trans) then
+      pb%pb(r:r+3) = pb%blendpx( r, px )
+    else
       pb%pb(r:r+3) = px
-    !else
-    !  write(fb%FID,REC=r) px
-    !endif
+    endif
   end do
 endif
 end subroutine pb_line2c !}}}
@@ -1239,58 +1279,163 @@ enddo
 
 end subroutine pb_semicircle !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
-! pb_fillcircle( x, y, r, px )
+! pb_fillcircle( x, y, r, px, [sb(2,2)], [z] )
 !   draw a circle centered at location (x,y) with radius of, r. and color, px
-subroutine pb_fillcircle( pb, x, y, r, px ) !{{{
+subroutine pb_fillcircle( pb, x, y, r, px, sb, z ) !{{{
 implicit none
 class(PixBuffType) :: pb
 integer, intent(in) :: x, y, r
+real(4), optional, intent(in) :: z
+integer, dimension(2,2), optional, intent(in) :: sb
 character(4), intent(in) :: px
 integer :: i, j
 real :: ra
+logical :: yeah
 ! augment radius by a fraction of a pixel to prevent single pixel top and bottom
 ra = real(r)+0.4
 ra = ra*ra
+yeah = .false.
+if (present(sb).and.present(z)) yeah=.true.
 
-call pb%line(-r+x, y,  r+x, y, px) !center horizontal
-! draw upper and lower curves 
-do i = 1, r
-  j = nint(sqrt(ra-real(i*i)))
-  call pb%line(-j+x,-i+y,  j+x,-i+y, px) !upper
-  call pb%line(-j+x, i+y,  j+x, i+y, px) !lower
-enddo
+if (yeah) then
+   call pb%line2c(-r+x, y,  r+x, y, px, px, sb, z, z) !center horizontal
+   ! draw upper and lower curves 
+   do i = 1, r
+     j = nint(sqrt(ra-real(i*i)))
+     call pb%line2c(-j+x,-i+y,  j+x,-i+y, px, px, sb, z, z) !upper
+     call pb%line2c(-j+x, i+y,  j+x, i+y, px, px, sb, z, z) !lower
+   enddo
+else
+   call pb%line(-r+x, y,  r+x, y, px) !center horizontal
+   ! draw upper and lower curves 
+   do i = 1, r
+     j = nint(sqrt(ra-real(i*i)))
+     call pb%line(-j+x,-i+y,  j+x,-i+y, px) !upper
+     call pb%line(-j+x, i+y,  j+x, i+y, px) !lower
+   enddo
+endif
 
 end subroutine pb_fillcircle !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
-! pb_sphere( x, y, r, px )
-!   draw a circle centered at location (x,y) with radius of, r. and color, px
-subroutine pb_sphere( pb, x, y, r, px ) !{{{
+! pb_sphere( x, y, r, px, [sb(2,2)], [z] )
+!   draw a circle fade to black at location (x,y) with radius of, r. and color, px
+subroutine pb_sphere( pb, x, y, r, px, sb, z ) !{{{
 implicit none
 class(PixBuffType) :: pb
 integer, intent(in) :: x, y, r
+real(4), optional, intent(in) :: z
+integer, dimension(2,2), optional, intent(in) :: sb
 character(4), intent(in) :: px
 character(4) :: lp ! local pixel
-integer :: i, j, j1, ic(3)
+integer :: i, j, k, j1, ic(3), cc(2,4), dir(2,4)
 real :: ra, d
 ! augment radius by a fraction of a pixel to prevent single pixel top and bottom
 ra = real(r)+0.4
 ra = ra*ra
+dir(:,1) = (/ -1, -1 /)
+dir(:,2) = (/ -1,  1 /)
+dir(:,3) = (/  1, -1 /)
+dir(:,4) = (/  1,  1 /)
 
-call pb%line(-r+x, y,  r+x, y, px) !center horizontal
+!if (present(sb).and.pb%Lzbuff) then
+!  call pb%line2c(-r+x, y,  r+x, y, px, px, sb, z, z) !center horizontal
+!else
+!  call pb%line(-r+x, y,  r+x, y, px) !center horizontal
+!endif
 ! draw upper and lower curves 
-do i = -r, r ! vertical raster
+do i = 0, r ! vertical raster
   j1 = nint(sqrt(ra-real(i*i)))
-  do j = -j1, j1 !horizonal raster
+  do j = 0, j1 !horizonal raster
     d = sqrt( 1.0-real(j*j+i*i)/real(r*r) )
     ic(1) = int(real(iachar(px(1:1)))*d)
     ic(2) = int(real(iachar(px(2:2)))*d)
     ic(3) = int(real(iachar(px(3:3)))*d)
     lp(:) = char(ic(1))//char(ic(2))//char(ic(3))//px(4:4)
-    call pb%putPixel( j+x, i+y, lp )
+    cc(1,:) = j; cc(2,:) = i
+    cc = dir*cc
+    cc(1,:) = cc(1,:)+x; cc(2,:) = cc(2,:)+y
+    do k = 1, 4
+      if (i.eq.0.and.(k.eq.2.or.k.eq.4)) cycle
+      if (j.eq.0.and.k.gt.2) cycle
+      if (present(sb)) then
+       if (cc(1,k).lt.sb(1,1)) then; cycle !x too low
+       elseif (cc(1,k).gt.sb(1,2)) then; cycle; endif !x too large
+       if (cc(2,k).lt.sb(2,1)) then; cycle !y too low
+       elseif (cc(2,k).gt.sb(2,2)) then; cycle; endif !y too large
+      endif
+      if (pb%Lzbuff) then
+       if (pb%zbuff(cc(1,k),cc(2,k)).gt.0.0.and.z.gt.pb%zbuff(cc(1,k),cc(2,k))) then
+        cycle !behind already rendered
+       else
+        pb%zbuff(cc(1,k),cc(2,k)) = z ! save to the z buffer.
+       endif
+      endif
+      call pb%putPixel( cc(1,k), cc(2,k), lp )
+    enddo
   enddo
 enddo
 
 end subroutine pb_sphere !}}}
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
+! pb_cloud( x, y, r, px, [sb(2,2)], [z] )
+!   draw a circle fade to transparent at (x,y) with radius of, r. and color, px
+subroutine pb_cloud( pb, x, y, r, px, sb, z ) !{{{
+implicit none
+class(PixBuffType) :: pb
+integer, intent(in) :: x, y, r
+real(4), optional, intent(in) :: z
+integer, dimension(2,2), optional, intent(in) :: sb
+character(4), intent(in) :: px
+character(4) :: lp ! local pixel
+integer :: i, j, k, j1, ic(3), cc(2,4), dir(2,4)
+real :: ra, d
+! augment radius by a fraction of a pixel to prevent single pixel top and bottom
+ra = real(r)+0.4
+ra = ra*ra
+dir(:,1) = (/ -1, -1 /)
+dir(:,2) = (/ -1,  1 /)
+dir(:,3) = (/  1, -1 /)
+dir(:,4) = (/  1,  1 /)
+
+!if (present(sb).and.pb%Lzbuff) then
+!  call pb%line2c(-r+x, y,  r+x, y, px, px, sb, z, z) !center horizontal
+!else
+!  call pb%line(-r+x, y,  r+x, y, px) !center horizontal
+!endif
+! draw upper and lower curves 
+do i = 0, r ! vertical raster
+  j1 = nint(sqrt(ra-real(i*i)))
+  do j = 0, j1 !horizonal raster
+    ! scale transparency byte up to full when distance = r
+    d = 1.0-sqrt( max(0.0,1.0-real(j*j+i*i)/ra) )
+    lp = px
+    !lp(4:4) = char(int(real(iachar(px(4:4)))*d))
+    lp(4:4) = char(min(nint(255.0*d),255))
+    cc(1,:) = j; cc(2,:) = i
+    cc = dir*cc
+    cc(1,:) = cc(1,:)+x; cc(2,:) = cc(2,:)+y
+    do k = 1, 4
+      if (i.eq.0.and.(k.eq.2.or.k.eq.4)) cycle
+      if (j.eq.0.and.k.gt.2) cycle
+      if (present(sb)) then
+       if (cc(1,k).lt.sb(1,1)) then; cycle !x too low
+       elseif (cc(1,k).gt.sb(1,2)) then; cycle; endif !x too large
+       if (cc(2,k).lt.sb(2,1)) then; cycle !y too low
+       elseif (cc(2,k).gt.sb(2,2)) then; cycle; endif !y too large
+      endif
+      if (pb%Lzbuff) then
+       if (pb%zbuff(cc(1,k),cc(2,k)).gt.0.0.and.z.gt.pb%zbuff(cc(1,k),cc(2,k))) then
+        cycle !behind already rendered
+       else
+        pb%zbuff(cc(1,k),cc(2,k)) = z ! save to the z buffer.
+       endif
+      endif
+      call pb%putPixel( cc(1,k), cc(2,k), lp )
+    enddo
+  enddo
+enddo
+
+end subroutine pb_cloud !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 !  PLOTS & FONTS
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
