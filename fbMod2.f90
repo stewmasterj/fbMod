@@ -142,17 +142,18 @@ integer, intent(in) :: mode
 !  1     full buffer dump, as BGRA and excess columns
 !  2     full screen binary P6-PPM
 !  3     only non NULL pixels printed in ASCII: X Y R G B
-integer :: i, k, j, b, g, r, x, y, itmp
+integer :: i, k, j, b, g, r, x, y, itmp, FD
 character(80) :: frmtstr
 character :: rgb(3,pb%lline,pb%h)
-open(11,file=trim(FL))
+FD = 21
+open(FD,file=trim(FL))
 select case(mode)
-  case(1); write(11) pb%pb
+  case(1); write(FD) pb%pb
   case(2);
     !write(11,'(''P6'', 2(1x,i4),'' 255 '',$)') fb%lline, fb%height
-    write(11,'(A2)') "P6"
-    write(11,'(2(1x,i4))') pb%lline, pb%h
-    write(11,'(i3)') 255
+    write(FD,'(A2)') "P6"
+    write(FD,'(2(1x,i4))') pb%lline, pb%h
+    write(FD,'(i3)') 255
     itmp = pb%lline*pb%h*3
     !write(frmtstr,'(''('',i8.8,''A,$)'')') itmp
     write(frmtstr,'(''('',i8.8,''A)'')') itmp
@@ -168,7 +169,7 @@ endif
       rgb(2,x,y) = pb%pb(k+1:k+1)
       rgb(1,x,y) = pb%pb(k+2:k+2)
     enddo
-    write(11,fmt=frmtstr,advance="no") (((rgb(k,i,j),k=1,3),i=1,pb%lline),j=1,pb%h)
+    write(FD,fmt=frmtstr,advance="no") (((rgb(k,i,j),k=1,3),i=1,pb%lline),j=1,pb%h)
   case(3); 
     do i = 1, pb%lline*pb%h
       k = i*4-3
@@ -178,10 +179,10 @@ endif
       if (b.eq.0 .and. g.eq.0 .and. r.eq.0) cycle
       y = int(real(i)/real(pb%lline)) +1
       x = i -(y-1)*pb%lline
-      write(11,'(5i5)') x, y, r, g, b
+      write(FD,'(5i5)') x, y, r, g, b
     enddo
 end select
-close(11)
+close(FD)
 end subroutine pb_dump !}}}
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!80
 subroutine pb_PPM2PixBuff( pb, fil ) !{{{
